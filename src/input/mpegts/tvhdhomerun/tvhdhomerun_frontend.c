@@ -623,8 +623,9 @@ all:
     mpegts_pid_done(&wpid);
   }
 
+  tvh_mutex_unlock(&hfe->hf_dvr_lock);
+
   if (buffer[0] == '\0') {
-    tvh_mutex_unlock(&hfe->hf_dvr_lock);
     return;
   }
 
@@ -700,7 +701,7 @@ new_tune:
     udp = NULL;
   }
   udp_multirecv_init(&um, UDP_PKTS, UDP_PKT_SIZE);
-  sbuf_init_fixed(&sb, UDP_PKTS * UDP_PKT_SIZE);
+  sbuf_init(&sb);
   running = 0;
   mmi = NULL;
 
