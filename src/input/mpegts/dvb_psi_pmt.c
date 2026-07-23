@@ -450,6 +450,11 @@ dvb_psi_parse_pmt
 
         if((estype == 0x06 || estype == 0x81) && ac4)
           hts_stream_type = SCT_AC4;
+
+#if ENABLE_T2MI
+        if(ptr[0] == 0x11 && estype == 0x06) /* T2MI_descriptor */
+          hts_stream_type = SCT_T2MI;
+#endif
         break;
 
       case DVB_DESC_ANCILLARY_DATA:
@@ -468,7 +473,21 @@ dvb_psi_parse_pmt
       }
       len -= dlen; ptr += dlen; dllen -= dlen;
     }
-    
+
+#if ENABLE_T2MI
+    /* Private data streams may carry T2-MI or plain TS data piping
+     * without proper signalling (e.g. the Abertis/Cellnex DTT
+     * distribution uses private stream types).  Mapping them to a
+     * component makes the carrier service startable and lets the
+     * descrambler cover the carrier PID. */
+    if (hts_stream_type == SCT_UNKNOWN && mux->mm_t2mi_carriers &&
+        (estype == 0x06 || estype >= 0x80)) {
+      hts_stream_type = SCT_T2MI;
+      tvhdebug(mt->mt_subsys, "%s:    pid %04X mapped as T2-MI carrier",
+               mt->mt_name, pid);
+    }
+#endif
+
     if (hts_stream_type != SCT_UNKNOWN) {
 
       st = elementary_stream_find(set, pid);
@@ -644,12 +663,25 @@ dvb_pmt_callback
       restart = s->s_status == SERVICE_RUNNING;
     }
   }
+#if ENABLE_T2MI
+  int has_t2mi = elementary_stream_type_find(&s->s_components, SCT_T2MI) != NULL;
+#endif
   /* autoenable */
-  if (elementary_stream_has_audio_or_video(&s->s_components)) {
+  if (elementary_stream_has_audio_or_video(&s->s_components)
+#if ENABLE_T2MI
+      /* T2-MI / TS piping carrier services have no audio or video,
+       * but must be startable so a T2-MI mux can subscribe to them */
+      || has_t2mi
+#endif
+     ) {
     mpegts_service_autoenable(s, "PAT and PMT");
     s->s_verified = 1;
   }
   tvh_mutex_unlock(&s->s_stream_mutex);
+#if ENABLE_T2MI
+  if (has_t2mi)
+    t2mi_carrier_seen(mm);
+#endif
   if (restart)
     service_restart((service_t*)s);
   if (update & (PMT_UPDATE_NEW_CA_STREAM|PMT_UPDATE_NEW_CAID|
